@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<title>Image Processing Client</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #171a23;
+    --border: #2a2e3a;
+    --accent: #6ea8fe;
+    --accent-dim: #3a5fa0;
+    --text: #e7e9ee;
+    --text-dim: #9aa0ac;
+    --ok: #4caf7d;
+    --err: #e5484d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", Tahoma, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 20px 60px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.subtitle { color: var(--text-dim); margin-top: 0; }
+
+  .wrap { max-width: 960px; margin: 0 auto; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 6px; }
+
+  input[type="text"], select, input[type="number"] {
+    width: 100%;
+    background: #0f1117;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+  }
+
+  .row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .row > div { flex: 1; min-width: 160px; }
+
+  input[type="file"] { color: var(--text-dim); }
+
+  button {
+    background: var(--accent);
+    color: #0f1117;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  button:hover { background: #85b9ff; }
+  button:disabled { background: var(--accent-dim); cursor: not-allowed; }
+
+  .images {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+  }
+  .image-box {
+    flex: 1;
+    min-width: 280px;
+    background: #0f1117;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .image-box h3 { margin: 0 0 10px; font-size: 13px; color: var(--text-dim); font-weight: 600; }
+  .image-box img {
+    max-width: 100%;
+    border-radius: 6px;
+    background: #000;
+  }
+
+  #status { margin-top: 14px; font-size: 13px; }
+  #status.ok  { color: var(--ok); }
+  #status.err { color: var(--err); }
+
+  .canny-only { display: none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Image Processing Client</h1>
+  <p class="subtitle">Frontend → REST API → Backend (Flask + OpenCV)</p>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label for="backendUrl">Backend URL</label>
+        <input type="text" id="backendUrl" value="http://localhost:5000" />
+      </div>
+      <div>
+        <label for="operation">Operation</label>
+        <select id="operation">
+          <option value="canny">Canny Edge Detection</option>
+          <option value="sobel">Sobel Gradient Magnitude</option>
+          <option value="harris">Harris Corner Detection</option>
+          <option value="grayscale">Grayscale</option>
+          <option value="blur">Gaussian Blur</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row canny-only" id="cannyRow">
+      <div>
+        <label for="threshold1">Canny Threshold 1 (low)</label>
+        <input type="number" id="threshold1" value="100" />
+      </div>
+      <div>
+        <label for="threshold2">Canny Threshold 2 (high)</label>
+        <input type="number" id="threshold2" value="200" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="imageInput">Image file</label>
+        <input type="file" id="imageInput" accept="image/*" />
+      </div>
+    </div>
+
+    <button id="submitBtn">Upload &amp; Process</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="images">
+    <div class="image-box">
+      <h3>ORIGINAL</h3>
+      <img id="originalImg" alt="Original will appear here" />
+    </div>
+    <div class="image-box">
+      <h3>PROCESSED (from server)</h3>
+      <img id="resultImg" alt="Result will appear here" />
+    </div>
+  </div>
+</div>
+
+<script>
+  const operationSelect = document.getElementById("operation");
+  const cannyRow = document.getElementById("cannyRow");
+  const imageInput = document.getElementById("imageInput");
+  const submitBtn = document.getElementById("submitBtn");
+  const statusEl = document.getElementById("status");
+  const originalImg = document.getElementById("originalImg");
+  const resultImg = document.getElementById("resultImg");
+  const backendUrlInput = document.getElementById("backendUrl");
+
+  function toggleCannyFields() {
+    cannyRow.style.display = operationSelect.value === "canny" ? "flex" : "none";
+  }
+  operationSelect.addEventListener("change", toggleCannyFields);
+  toggleCannyFields();
+
+  imageInput.addEventListener("change", () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+    originalImg.src = URL.createObjectURL(file);
+    resultImg.src = "";
+  });
+
+  submitBtn.addEventListener("click", async () => {
+    const file = imageInput.files[0];
+    if (!file) {
+      showStatus("Please choose an image file first.", "err");
+      return;
+    }
+
+    const backendUrl = backendUrlInput.value.replace(/\/$/, "");
+    const formData = new FormData();
+    formData.append("image", file);
+    formData.append("operation", operationSelect.value);
+    if (operationSelect.value === "canny") {
+      formData.append("threshold1", document.getElementById("threshold1").value);
+      formData.append("threshold2", document.getElementById("threshold2").value);
+    }
+
+    submitBtn.disabled = true;
+    showStatus("Uploading and processing on server...", "");
+
+    try {
+      const res = await fetch(`${backendUrl}/api/process`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        showStatus(`Server error: ${data.error || res.statusText}`, "err");
+      } else {
+        resultImg.src = data.image;
+        showStatus(`Done — operation: ${data.operation}`, "ok");
+      }
+    } catch (err) {
+      showStatus(`Request failed: ${err.message} (is the backend running and reachable?)`, "err");
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+
+  function showStatus(msg, cls) {
+    statusEl.textContent = msg;
+    statusEl.className = cls;
+  }
+</script>
+</body>
+</html>
