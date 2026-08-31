@@ -93,6 +93,25 @@
   #status.err { color: var(--err); }
 
   .canny-only { display: none; }
+
+  #connStatus {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    margin-top: 6px;
+    color: var(--text-dim);
+  }
+  #connStatus .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+  }
+  #connStatus.ok  .dot { background: var(--ok); }
+  #connStatus.ok  { color: var(--ok); }
+  #connStatus.err .dot { background: var(--err); }
+  #connStatus.err { color: var(--err); }
 </style>
 </head>
 <body>
@@ -104,7 +123,8 @@
     <div class="row">
       <div>
         <label for="backendUrl">Backend URL</label>
-        <input type="text" id="backendUrl" value="172.20.57.39:5000" />
+        <input type="text" id="backendUrl" value="http://172.20.57.39:5000" />
+        <div id="connStatus"><span class="dot"></span><span id="connStatusText">Checking connection...</span></div>
       </div>
       <div>
         <label for="operation">Operation</label>
@@ -162,11 +182,43 @@
   const resultImg = document.getElementById("resultImg");
   const backendUrlInput = document.getElementById("backendUrl");
 
+  const connStatusEl = document.getElementById("connStatus");
+  const connStatusText = document.getElementById("connStatusText");
+
   function toggleCannyFields() {
     cannyRow.style.display = operationSelect.value === "canny" ? "flex" : "none";
   }
   operationSelect.addEventListener("change", toggleCannyFields);
   toggleCannyFields();
+
+  // --- Check connection to backend (GET /api/health) ---
+  async function checkConnection() {
+    const backendUrl = backendUrlInput.value.replace(/\/$/, "");
+    connStatusEl.className = "";
+    connStatusText.textContent = "Checking connection...";
+
+    try {
+      const res = await fetch(`${backendUrl}/api/health`, { method: "GET" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+
+      connStatusEl.className = "ok";
+      connStatusText.textContent = `เชื่อมต่อสำเร็จ (${data.service || "backend"} is online)`;
+    } catch (err) {
+      connStatusEl.className = "err";
+      connStatusText.textContent = `เชื่อมต่อไม่ได้: ${err.message}`;
+    }
+  }
+
+  // Check once on page load
+  checkConnection();
+
+  // Re-check whenever the user edits the backend URL (after they stop typing)
+  let debounceTimer;
+  backendUrlInput.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(checkConnection, 600);
+  });
 
   imageInput.addEventListener("change", () => {
     const file = imageInput.files[0];
